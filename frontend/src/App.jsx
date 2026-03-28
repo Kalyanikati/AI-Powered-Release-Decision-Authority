@@ -46,7 +46,7 @@ export default function App() {
       const response = await fetch(apiUrl.trim(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ text: transcript }),
       });
 
       const text = await response.text();
