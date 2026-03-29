@@ -46,7 +46,7 @@ export default function App() {
       const response = await fetch(apiUrl.trim(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ text: transcript }),
       });
 
       const text = await response.text();
@@ -89,15 +89,6 @@ export default function App() {
 
         <section className="panel">
           <form onSubmit={onAnalyze}>
-            <label className="label">Backend API URL</label>
-            <input
-              className="input"
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://localhost:8000/analyze"
-              required
-            />
-
             <label className="label">Transcript Input</label>
             <textarea
               className="textarea"
