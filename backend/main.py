@@ -11,6 +11,7 @@ from pipeline.ambiguity import detect_ambiguity
 from pipeline.conflict import detect_conflicts
 from pipeline.scorer import compute_score
 
+
 app = FastAPI(title="Multilingual Decision Integrity Engine")
 
 app.add_middleware(
@@ -40,6 +41,7 @@ def analyze(req: TranscriptRequest) -> Dict[str, Any]:
         )
 
         llm_out = analyze_with_llm(transcript_for_llm)
+
         decisions: List[Dict[str, Any]] = llm_out.get("decisions", [])
         llm_ambiguities: List[Dict[str, Any]] = llm_out.get("ambiguities", [])
         llm_conflicts: List[Dict[str, Any]] = llm_out.get("conflicts", [])
@@ -48,10 +50,12 @@ def analyze(req: TranscriptRequest) -> Dict[str, Any]:
         rule_ambiguities = detect_ambiguity(decisions, project_root)
         rule_conflicts = detect_conflicts(decisions)
 
-        ambiguities = _dedupe_dicts(llm_ambiguities + rule_ambiguities)
-        conflicts = _dedupe_dicts(llm_conflicts + rule_conflicts)
+        ambiguities = dedupe_dicts(llm_ambiguities + rule_ambiguities)
+        conflicts = dedupe_dicts(llm_conflicts + rule_conflicts)
 
         score_obj = compute_score(decisions, ambiguities, conflicts)
+
+        language_summary = summarize_languages(utterances)
 
         return {
             "decisions": decisions,
@@ -60,12 +64,14 @@ def analyze(req: TranscriptRequest) -> Dict[str, Any]:
             "score": score_obj["score"],
             "label": score_obj["label"],
             "breakdown": score_obj["breakdown"],
+            "language_summary": language_summary,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
-def _dedupe_dicts(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def dedupe_dicts(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     seen = set()
     out = []
     for item in items:
@@ -74,3 +80,11 @@ def _dedupe_dicts(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             seen.add(key)
             out.append(item)
     return out
+
+
+def summarize_languages(utterances: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for u in utterances:
+        lang = u.get("language_hint", "unknown")
+        counts[lang] = counts.get(lang, 0) + 1
+    return counts

@@ -1,35 +1,37 @@
 import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from groq import Groq
+
 
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+
 SYSTEM_PROMPT = """
-You are an enterprise meeting decision analyzer.
+You are an enterprise decision extraction engine.
 
-Handle English, Hindi, and code-mixed Hinglish.
-Preserve quote text in original language. Do not translate quotes.
+Input may be English, Hindi, or code-mixed Hinglish.
+Preserve original quote language exactly. Do not translate quotes.
 
-Return ONLY valid JSON with this exact shape:
+Return ONLY valid JSON with this shape:
 {
   "decisions": [
     {
       "decision": "string",
       "owner": "string or null",
       "deadline": "string or null",
-      "quote": "exact supporting quote"
+      "quote": "exact quote"
     }
   ],
   "ambiguities": [
     {
-      "phrase": "ambiguous phrase",
-      "quote": "exact supporting quote"
+      "phrase": "string",
+      "quote": "exact quote"
     }
   ],
   "conflicts": [
@@ -40,59 +42,115 @@ Return ONLY valid JSON with this exact shape:
     }
   ]
 }
-
-If there is no item for a section, return an empty array for that section.
-No markdown, no explanation.
 """.strip()
 
 
-def analyze_with_llm(transcript: str) -> Dict[str, Any]:
+def analyze_with_llm(transcript: str) -> Dict[str, List[Dict[str, Any]]]:
     if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing in backend/.env")
+        raise RuntimeError("GROQ_API_KEY missing in backend/.env")
 
     client = Groq(api_key=GROQ_API_KEY)
 
-    response = client.chat.completions.create(
+    attempt_1 = _call_model(client, transcript)
+    parsed_1 = _parse_json_safely(attempt_1)
+
+    if _valid_shape(parsed_1):
+        return _normalize(parsed_1)
+
+    # one repair attempt
+    repair_prompt = (
+        "Your previous output was invalid. Return only strict JSON with keys "
+        "decisions, ambiguities, conflicts. No markdown.\n\nTranscript:\n"
+        + transcript
+    )
+    attempt_2 = _call_model(client, repair_prompt, use_system=True)
+    parsed_2 = _parse_json_safely(attempt_2)
+
+    if _valid_shape(parsed_2):
+        return _normalize(parsed_2)
+
+    return {"decisions": [], "ambiguities": [], "conflicts": []}
+
+
+def _call_model(client: Groq, user_content: str, use_system: bool = True) -> str:
+    messages = []
+    if use_system:
+        messages.append({"role": "system", "content": SYSTEM_PROMPT})
+    messages.append({"role": "user", "content": f"Transcript:\n{user_content}"})
+
+    resp = client.chat.completions.create(
         model=GROQ_MODEL,
         temperature=0,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Transcript:\n{transcript}"},
-        ],
+        messages=messages,
     )
-
-    raw = response.choices[0].message.content or ""
-    parsed = _safe_json_load(raw)
-
-    decisions = parsed.get("decisions", [])
-    ambiguities = parsed.get("ambiguities", [])
-    conflicts = parsed.get("conflicts", [])
-
-    if not isinstance(decisions, list):
-        decisions = []
-    if not isinstance(ambiguities, list):
-        ambiguities = []
-    if not isinstance(conflicts, list):
-        conflicts = []
-
-    return {
-        "decisions": decisions,
-        "ambiguities": ambiguities,
-        "conflicts": conflicts,
-    }
+    return resp.choices[0].message.content or ""
 
 
-def _safe_json_load(raw: str) -> Dict[str, Any]:
+def _parse_json_safely(raw: str) -> Dict[str, Any]:
     text = raw.strip()
 
     if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
+        text = text.replace("```json", "").replace("```", "").strip()
 
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         text = text[start : end + 1]
 
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except Exception:
+        return {}
+
+
+def _valid_shape(obj: Dict[str, Any]) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    for k in ["decisions", "ambiguities", "conflicts"]:
+        if k not in obj or not isinstance(obj[k], list):
+            return False
+    return True
+
+
+def _normalize(obj: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    decisions = []
+    for d in obj.get("decisions", []):
+        if not isinstance(d, dict):
+            continue
+        decisions.append(
+            {
+                "decision": d.get("decision"),
+                "owner": d.get("owner"),
+                "deadline": d.get("deadline"),
+                "quote": d.get("quote"),
+            }
+        )
+
+    ambiguities = []
+    for a in obj.get("ambiguities", []):
+        if not isinstance(a, dict):
+            continue
+        ambiguities.append(
+            {
+                "phrase": a.get("phrase"),
+                "quote": a.get("quote"),
+            }
+        )
+
+    conflicts = []
+    for c in obj.get("conflicts", []):
+        if not isinstance(c, dict):
+            continue
+        conflicts.append(
+            {
+                "statement1": c.get("statement1"),
+                "statement2": c.get("statement2"),
+                "reason": c.get("reason"),
+            }
+        )
+
+    return {
+        "decisions": decisions,
+        "ambiguities": ambiguities,
+        "conflicts": conflicts,
+    }

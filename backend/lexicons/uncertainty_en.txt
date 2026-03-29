@@ -10,3 +10,7 @@ asap
 around
 sometime
 tbd
+tentative
+for now
+depends
+if possible
