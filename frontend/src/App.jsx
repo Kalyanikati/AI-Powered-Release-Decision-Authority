@@ -170,7 +170,9 @@ export default function App() {
       }}
     >
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: "0 0 4px" }}>SDLC Governance Copilot</h1>
+        <h1 style={{ margin: "0 0 4px" }}>
+          AI-Powered Release Decision Authority
+        </h1>
         <p style={{ margin: 0, color: "#555" }}>
           AI-powered release request intake, policy gate, auto-approval, and
           human approver flow.
