@@ -69,7 +69,6 @@ export default function App() {
     setParsing(true);
     setError("");
     setParsedPreview(null);
-
     try {
       const res = await fetch(`${API_BASE}/parse-request`, {
         method: "POST",
@@ -78,8 +77,7 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Parse failed");
-      const merged = { ...initialForm, ...data };
-      setForm(merged);
+      setForm({ ...initialForm, ...data });
       setParsedPreview(data);
     } catch (err) {
       setError(err.message || "Parse failed");
@@ -93,7 +91,6 @@ export default function App() {
     setLoading(true);
     setError("");
     setResult(null);
-
     try {
       const payload = {
         requester_name: form.requester_name || "",
@@ -110,7 +107,6 @@ export default function App() {
         pii_impact: Boolean(form.pii_impact),
         notes: form.notes || "",
       };
-
       const res = await fetch(`${API_BASE}/release-requests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -195,7 +191,7 @@ export default function App() {
         </div>
       ) : null}
 
-      {/* STEP 1: Raw text paste */}
+      {/* STEP 1 */}
       <Section title="Step 1 — Paste Raw Release Request (Slack / Email / JIRA)">
         <textarea
           rows={8}
@@ -241,7 +237,7 @@ export default function App() {
         </div>
       </Section>
 
-      {/* STEP 2: Structured form */}
+      {/* STEP 2 */}
       <form onSubmit={submitRequest}>
         <Section title="Step 2 — Review & Submit Release Request">
           <Grid>
@@ -280,7 +276,6 @@ export default function App() {
               options={["normal", "high", "critical"]}
             />
           </Grid>
-
           <div style={{ marginTop: 10 }}>
             <Input
               label="Planned Window"
@@ -288,7 +283,6 @@ export default function App() {
               onChange={(v) => setForm({ ...form, planned_window: v })}
             />
           </div>
-
           <textarea
             rows={3}
             style={{ width: "100%", marginTop: 10, padding: 10 }}
@@ -296,7 +290,6 @@ export default function App() {
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             placeholder="Notes / description of change"
           />
-
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
               Checklist
@@ -329,7 +322,6 @@ export default function App() {
               />
             </Grid>
           </div>
-
           <button
             type="submit"
             disabled={loading}
@@ -349,7 +341,7 @@ export default function App() {
         </Section>
       </form>
 
-      {/* STEP 3: Policy gate result */}
+      {/* STEP 3 */}
       {result ? (
         <Section title="Step 3 — Policy Gate Decision">
           <div
@@ -372,14 +364,13 @@ export default function App() {
             />
           </div>
 
+          {/* Decision summary */}
           {result.decision_summary ? (
             <div
               style={{
                 background:
                   result.status === "auto_approved" ? "#f0fff4" : "#fff5f5",
-                border: `1px solid ${
-                  result.status === "auto_approved" ? "#9ae6b4" : "#fcb"
-                }`,
+                border: `1px solid ${result.status === "auto_approved" ? "#9ae6b4" : "#fcb"}`,
                 borderRadius: 6,
                 padding: 12,
                 marginBottom: 10,
@@ -387,6 +378,35 @@ export default function App() {
               }}
             >
               {result.decision_summary}
+            </div>
+          ) : null}
+
+          {/* AI GOVERNANCE RATIONALE — NEW */}
+          {result.ai_rationale ? (
+            <div
+              style={{
+                background: "#f0f4ff",
+                border: "1px solid #7f9cf5",
+                borderRadius: 6,
+                padding: 12,
+                marginBottom: 10,
+              }}
+            >
+              <b
+                style={{ display: "block", marginBottom: 6, color: "#3730a3" }}
+              >
+                🤖 AI Governance Rationale
+              </b>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  lineHeight: 1.7,
+                  color: "#1a1a2e",
+                }}
+              >
+                {result.ai_rationale}
+              </p>
             </div>
           ) : null}
 
@@ -438,8 +458,7 @@ export default function App() {
             </div>
           ) : null}
 
-          {result.decision_details?.applicable_policies &&
-          result.decision_details.applicable_policies.length > 0 ? (
+          {result.decision_details?.applicable_policies?.length > 0 ? (
             <div
               style={{
                 background: "#fef3c7",
@@ -492,7 +511,7 @@ export default function App() {
         </Section>
       ) : null}
 
-      {/* STEP 4: Approver queue */}
+      {/* STEP 4 */}
       <Section title="Step 4 — Approvals Queue (Release Manager View)">
         <button
           onClick={loadQueue}
@@ -541,6 +560,25 @@ export default function App() {
                 {item.escalation_reason}
               </p>
 
+              {/* AI rationale in queue card */}
+              {item.ai_rationale ? (
+                <div
+                  style={{
+                    background: "#f0f4ff",
+                    border: "1px solid #7f9cf5",
+                    borderRadius: 6,
+                    padding: 10,
+                    marginBottom: 8,
+                    fontSize: 13,
+                  }}
+                >
+                  <b style={{ color: "#3730a3" }}>🤖 AI Rationale</b>
+                  <p style={{ margin: "4px 0 0", lineHeight: 1.6 }}>
+                    {item.ai_rationale}
+                  </p>
+                </div>
+              ) : null}
+
               {Array.isArray(item.policy_violations) &&
               item.policy_violations.length > 0 ? (
                 <div style={{ fontSize: 13, marginBottom: 8 }}>
@@ -576,7 +614,6 @@ export default function App() {
                   <option value="approve">approve</option>
                   <option value="reject">reject</option>
                 </select>
-
                 <input
                   placeholder="Approver name"
                   value={decisionForm.approver_name}
@@ -588,7 +625,6 @@ export default function App() {
                   }
                   style={{ padding: 8, borderRadius: 4 }}
                 />
-
                 <select
                   value={decisionForm.approver_role}
                   onChange={(e) =>
@@ -605,7 +641,6 @@ export default function App() {
                     compliance_reviewer
                   </option>
                 </select>
-
                 <input
                   placeholder="Comment (optional)"
                   value={decisionForm.comment}
@@ -617,7 +652,6 @@ export default function App() {
                   }
                   style={{ padding: 8, borderRadius: 4, minWidth: 200 }}
                 />
-
                 <button
                   onClick={() => submitDecision(item.approval_id)}
                   style={{

@@ -1,18 +1,21 @@
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from pipeline.graph_flow import build_graph
 from pipeline.approval_store import APPROVAL_STORE
+from pipeline.graph_flow import build_graph
 from pipeline.request_parser import parse_raw_request
 
 app = FastAPI(title="SDLC Governance Copilot - Release Approvals")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # hackathon mode
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,12 +64,20 @@ def root() -> Dict[str, str]:
 @app.post("/release-requests")
 def submit_release_request(req: ReleaseRequest) -> Dict[str, Any]:
     try:
-        state = graph.invoke(req.model_dump())
+        thread_id = req.request_id or str(uuid4())
+        initial_state = req.model_dump()
+        initial_state["request_id"] = thread_id
+        config = {"configurable": {"thread_id": thread_id}}
 
-        if state.get("status") == "needs_human_approval":
-            approval_id = state.get("approval_id")
-            if approval_id:
-                APPROVAL_STORE[approval_id] = state
+        try:
+            state = graph.invoke(initial_state, config=config)
+        except GraphInterrupt:
+            # Graph paused at human_approval node — fetch saved state
+            state = dict(graph.get_state(config).values)
+
+        if state.get("status") == "awaiting_human_approval":
+            approval_id = state.get("approval_id") or thread_id
+            APPROVAL_STORE[approval_id] = state
 
         return state
     except Exception as exc:
@@ -77,7 +88,7 @@ def submit_release_request(req: ReleaseRequest) -> Dict[str, Any]:
 def get_approval_queue() -> List[Dict[str, Any]]:
     queue = []
     for approval_id, item in APPROVAL_STORE.items():
-        if item.get("status") == "needs_human_approval":
+        if item.get("status") == "awaiting_human_approval":
             queue.append(
                 {
                     "approval_id": approval_id,
@@ -89,6 +100,7 @@ def get_approval_queue() -> List[Dict[str, Any]]:
                     "required_approver": item.get("required_approver"),
                     "policy_violations": item.get("policy_violations", []),
                     "escalation_reason": item.get("escalation_reason", ""),
+                    "ai_rationale": item.get("ai_rationale", ""),
                 }
             )
     return queue
@@ -112,14 +124,28 @@ def submit_approval_decision(approval_id: str, req: ApprovalDecision) -> Dict[st
     if decision not in {"approve", "reject"}:
         raise HTTPException(status_code=400, detail="decision must be approve or reject")
 
-    item["approver_name"] = req.approver_name
-    item["approver_role"] = req.approver_role
-    item["approval_comment"] = req.comment
-    item["human_decision"] = decision
-    item["status"] = "approved_by_human" if decision == "approve" else "rejected_by_human"
+    try:
+        config = {"configurable": {"thread_id": approval_id}}
 
-    APPROVAL_STORE[approval_id] = item
-    return item
+        try:
+            final_state = graph.invoke(
+                Command(
+                    resume={
+                        "decision": decision,
+                        "comment": req.comment,
+                        "approver_name": req.approver_name,
+                        "approver_role": req.approver_role,
+                    }
+                ),
+                config=config,
+            )
+        except GraphInterrupt:
+            final_state = dict(graph.get_state(config).values)
+
+        APPROVAL_STORE[approval_id] = final_state
+        return final_state
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/parse-request")
